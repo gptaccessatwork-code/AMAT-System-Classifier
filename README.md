@@ -1,4 +1,4 @@
-# AMAT System Matcher
+# AMAT System Classifier
 
 Windows desktop application with two Excel workflows built on the versioned
 AMAT system-type rules and direct Agile WSDL BOM retrieval.
