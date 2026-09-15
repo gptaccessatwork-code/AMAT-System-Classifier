@@ -27,7 +27,7 @@ LOGGER = logging.getLogger(__name__)
 _HEADER_SCAN_ROWS = 25
 _HEADER_SCAN_COLUMNS = 50
 EVIDENCE_SHEET_NAME = "AMAT Match Evidence"
-WORKFLOW_VERSION = "2026.08.28.1"
+WORKFLOW_VERSION = "2026.09.02.2"
 
 
 class WorkflowMode(StrEnum):
@@ -199,11 +199,19 @@ def build_update_plan(
         decision = classification.decision
         feedback = feedback_by_row.get(classification.source_row)
         output_system_type = _approved_system_type(decision, feedback)
-        output_wd_template = (
-            SYSTEM_TYPE_TO_WD_TEMPLATE[output_system_type]
-            if output_system_type and mode == WorkflowMode.WD_TEMPLATE
-            else ""
-        )
+        output_wd_template = ""
+        if mode == WorkflowMode.WD_TEMPLATE:
+            if output_system_type:
+                output_wd_template = SYSTEM_TYPE_TO_WD_TEMPLATE[output_system_type]
+            elif decision.suggested_wd_template:
+                if decision.suggested_wd_template not in set(
+                    SYSTEM_TYPE_TO_WD_TEMPLATE.values()
+                ):
+                    raise ValueError(
+                        "Classifier suggested an unknown WD template: "
+                        f"{decision.suggested_wd_template}"
+                    )
+                output_wd_template = decision.suggested_wd_template
         value = (
             output_system_type
             if mode == WorkflowMode.SYSTEM_TYPE
@@ -230,6 +238,8 @@ def build_update_plan(
                 }[feedback.outcome]
             else:
                 requirements_action = "USER_VERIFICATION_REQUIRED"
+        elif decision.suggested_wd_template:
+            requirements_action = "SYSTEM_TYPE_RESEARCH"
         evidence_rows.append(
             MatchEvidence(
                 source_row=classification.source_row,

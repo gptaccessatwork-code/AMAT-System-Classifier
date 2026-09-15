@@ -1,6 +1,6 @@
 # AMAT System Type Identifier Requirements
 
-Current implemented ruleset: `2026.08.28.1`
+Current implemented ruleset: `2026.09.02.2`
 
 This document distinguishes implemented requirements from observations and
 open requirements. The versioned classifier and its regression tests are the
@@ -1140,7 +1140,7 @@ inspected, leave the output blank rather than assuming the non-LDM variant.
 
 ## Template Matching
 
-Template map version: `2026.08.27.1`.
+Template map version: `2026.09.02.2`.
 
 The template matcher reuses the parser and classification engine, then selects
 the approved WD template mapped to the predicted canonical system type. The
@@ -1202,12 +1202,35 @@ Shared template values are valid. The map contains 42 canonical system types
 and 31 unique WD templates; template names are identifiers and must be matched
 exactly, including capitalization and underscores.
 
+### ZG gas-panel WD-only mapping
+
+A structurally valid system whose product family is exactly `ZG` and whose
+chamber is `GP` or `GP` plus one letter is a gas-panel WD-template candidate.
+This is not a system-type rule: `predicted_system_type` must remain blank and
+the classification status remains `UNCLASSIFIED`.
+
+Every eligible normal ZG build uses `SGP_TEMPLATE_AMAT_GT_GPLIS`; GPLIS BOM
+evidence is not required. For an NSO, first apply the standard full-build gate.
+A retrofit or non-full-build NSO remains manual review and receives no template;
+only a confirmed full-build NSO receives `SGP_TEMPLATE_AMAT_GT_GPLIS`.
+
+Retain rule `WD-ZG-USE-GT-GPLIS-TEMPLATE` and the NSO gate evidence when
+applicable. The evidence-sheet `Requirements Action` is
+`SYSTEM_TYPE_RESEARCH` because the GT relationship applies only to the WD
+template and must not be interpreted as a ZG system-type classification.
+
+Confirmed full-build NSO examples are `800122R03-ZG-GPA`,
+`800122R03-ZG-GPB`, and `800122R03-ZG-GPC`. Each has 247 rows in the bounded
+level-2 snapshot, contains enclosure part `0041-49612` at level 2, has no GPLIS
+indicator, and selects `SGP_TEMPLATE_AMAT_GT_GPLIS` under the unconditional ZG
+WD rule while leaving system type blank.
+
 ## Operational Workbook Application
 
 The Windows desktop application exposes exactly two processing modes. Both
 modes reuse the same parser, classifier, Agile connector, ten-worker pool, BOM
 cache, and mandatory-verification policy. Operational workflow version:
-`2026.08.28.1`.
+`2026.09.02.2`.
 
 ### Find System Type
 
@@ -1237,7 +1260,7 @@ unrelated header, or has populated data without an approved header, reject the
 workbook rather than overwrite user data.
 
 Classify every system using the same rules as Find System Type, then resolve the
-approved canonical type through template map `2026.08.27.1`. Outcomes that
+approved canonical type through template map `2026.09.02.2`. Outcomes that
 cannot produce an approved system type must leave the adjacent template value
 blank.
 
@@ -1308,6 +1331,8 @@ coverage-limited proposal, record one of:
   `Requirements Action` to `RULE_REVIEW`.
 - `PENDING`: a defensive state for an unreviewed proposal; leave the output
   blank and set `Requirements Action` to `USER_VERIFICATION_REQUIRED`.
+- `SYSTEM_TYPE_RESEARCH`: a WD-only recommendation was written while the system
+  type deliberately remained uncertain, currently used for `ZG` gas panels.
 
 The evidence worksheet is the requirements-refinement handoff. It must retain
 the original deterministic proposal and evidence even when a user correction
@@ -1498,7 +1523,7 @@ programmatically. Persistent cross-run caching is not implemented.
 
 ## Robustness and Known Limits
 
-Ruleset `2026.08.28.1` is robust for the repeatedly exercised rule paths, but
+Ruleset `2026.09.02.2` is robust for the repeatedly exercised rule paths, but
 it is not yet complete for every canonical output or every valid system form.
 Its strongest property is fail-closed behavior: invalid formats, unfamiliar
 DG/DX chambers, incomplete BOM retrievals, conflicting evidence, and missing

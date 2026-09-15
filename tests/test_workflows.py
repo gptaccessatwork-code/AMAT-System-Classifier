@@ -258,6 +258,51 @@ class WorkbookWorkflowTests(unittest.TestCase):
                 },
             )
 
+    def test_zg_template_recommendation_is_wd_only(self):
+        path = self.scratch_path()
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet["A1"] = "System Number"
+        sheet["A2"] = "800122R03-ZG-GPA"
+        workbook.save(path)
+        layout = load_template_input_layout(path)
+        classifications = [
+            SystemClassification(
+                2,
+                "800122R03-ZG-GPA",
+                "NSO",
+                ClassificationDecision(
+                    DecisionStatus.UNCLASSIFIED,
+                    rule_ids=("NSO-FULL-BUILD", "WD-ZG-USE-GT-GPLIS-TEMPLATE"),
+                    evidence=(
+                        "Full-build NSO",
+                        "ZG system type remains uncertain",
+                    ),
+                    suggested_wd_template="SGP_TEMPLATE_AMAT_GT_GPLIS",
+                ),
+            )
+        ]
+
+        wd_plan = build_update_plan(
+            layout,
+            classifications,
+            WorkflowMode.WD_TEMPLATE,
+        )
+        self.assertEqual(wd_plan.updates[0].value, "SGP_TEMPLATE_AMAT_GT_GPLIS")
+        self.assertEqual(wd_plan.evidence[0].output_system_type, "")
+        self.assertEqual(
+            wd_plan.evidence[0].requirements_action,
+            "SYSTEM_TYPE_RESEARCH",
+        )
+
+        system_type_plan = build_update_plan(
+            layout,
+            classifications,
+            WorkflowMode.SYSTEM_TYPE,
+        )
+        self.assertEqual(system_type_plan.updates[0].value, "")
+        self.assertEqual(system_type_plan.evidence[0].output_wd_template, "")
+
     def test_writer_uses_copy_and_rejects_source_overwrite(self):
         source = self.scratch_path()
         output = self.scratch_path()

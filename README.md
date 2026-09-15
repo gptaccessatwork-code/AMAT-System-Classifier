@@ -42,6 +42,10 @@ or `System Template`. The application refuses to overwrite an unrelated
 adjacent column. The approved 42-type mapping is implemented in
 `system_type_identifier.templates` and contains 31 unique WD templates.
 
+Product-family `ZG` gas panels have a WD-only exception. Normal builds and
+confirmed full-build NSOs always use `SGP_TEMPLATE_AMAT_GT_GPLIS`. Their system
+type remains blank and uncertain; non-full NSOs receive no template.
+
 ## Processing
 
 Both modes use a pool of 10 Agile workers. Output row order matches the source
@@ -62,6 +66,8 @@ a `Requirements Action`. Return this workbook when refining the rules:
 `CONFIDENCE_EXAMPLE` supports the proposed low-confidence type,
 `RULE_CORRECTION` identifies a wrong proposal with its corrected type, and
 `RULE_REVIEW` identifies a rejected proposal that still needs investigation.
+`SYSTEM_TYPE_RESEARCH` marks a WD-only result such as `ZG`, where a template was
+selected but the system type intentionally remains unresolved.
 
 The deterministic rules and template map are documented in
 [REQUIREMENTS.md](REQUIREMENTS.md). The labeled-evaluation modules and reports

@@ -73,6 +73,7 @@ class ClassificationDecision:
     rule_ids: tuple[str, ...] = ()
     evidence: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    suggested_wd_template: str = ""
 
 
 @dataclass(frozen=True)

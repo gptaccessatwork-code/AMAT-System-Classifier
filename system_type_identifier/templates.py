@@ -6,7 +6,7 @@ from typing import Mapping
 from .models import ClassificationDecision, DecisionStatus
 
 
-TEMPLATE_MAP_VERSION = "2026.08.27.1"
+TEMPLATE_MAP_VERSION = "2026.09.02.2"
 
 SYSTEM_TYPE_TO_WD_TEMPLATE: Mapping[str, str] = MappingProxyType(
     {

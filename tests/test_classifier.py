@@ -158,6 +158,45 @@ class ClassifierTests(unittest.TestCase):
                     "DSM PRODUCER GT WITH GPLIS",
                 )
 
+    def test_zg_gas_panel_recommends_gt_template_without_system_type(self):
+        root = "700001-ZG-GPA"
+        self.assertEqual(self.classifier.required_bom_depth(parse_system_number(root)), 0)
+        decision = self.classify(root)
+        self.assertEqual(decision.status, DecisionStatus.UNCLASSIFIED)
+        self.assertEqual(decision.predicted_system_type, "")
+        self.assertEqual(
+            decision.suggested_wd_template,
+            "SGP_TEMPLATE_AMAT_GT_GPLIS",
+        )
+        self.assertIn("WD-ZG-USE-GT-GPLIS-TEMPLATE", decision.rule_ids)
+
+        with_gplis = bom(root, item(root, "0190-84840", "LF-F404M-A-EVD-700"))
+        decision = self.classify(root, with_gplis)
+        self.assertEqual(decision.predicted_system_type, "")
+        self.assertEqual(
+            decision.suggested_wd_template,
+            "SGP_TEMPLATE_AMAT_GT_GPLIS",
+        )
+
+    def test_zg_nso_requires_full_build_before_template_recommendation(self):
+        root = "800122R03-ZG-GPA"
+        full_build = bom(
+            root,
+            item("0244-HOLDER", "0041-49612", "KIT SYSTEM ENCLOSURE", depth=2),
+        )
+        decision = self.classify(root, full_build)
+        self.assertEqual(decision.status, DecisionStatus.UNCLASSIFIED)
+        self.assertEqual(
+            decision.suggested_wd_template,
+            "SGP_TEMPLATE_AMAT_GT_GPLIS",
+        )
+        self.assertIn("NSO-FULL-BUILD", decision.rule_ids)
+
+        non_full_build = bom(root)
+        decision = self.classify(root, non_full_build)
+        self.assertEqual(decision.status, DecisionStatus.MANUAL_REVIEW_NSO)
+        self.assertEqual(decision.suggested_wd_template, "")
+
     def test_liquid_count_requires_schematic_context(self):
         root = "510743-DG-GPA"
         snapshot = bom(root, item(root, "0240-TEST", "KIT, 1-LIQ SUPPLY LINE"))

@@ -13,7 +13,7 @@ from .models import (
 )
 
 
-RULESET_VERSION = "2026.08.28.1"
+RULESET_VERSION = "2026.09.02.2"
 
 VERIFICATION_REQUIRED_TYPES = frozenset(
     {
@@ -58,6 +58,8 @@ class SystemTypeClassifier:
         if family in {"XA3", "XA3T"} and chamber in {"GPA", "GPB", "GPC"}:
             return 0
         if family in {"EY1", "EY2", "EY4", "DA", "XXT"}:
+            return 0
+        if family == "ZG":
             return 0
         if family in {"DG", "DX"} and chamber != "GP" and not _GP_SINGLE.fullmatch(chamber):
             return 0
@@ -144,6 +146,7 @@ class SystemTypeClassifier:
                 rule_ids=("NSO-FULL-BUILD",) + decision.rule_ids,
                 evidence=tuple(gate_evidence) + decision.evidence,
                 warnings=decision.warnings,
+                suggested_wd_template=decision.suggested_wd_template,
             )
         return self._require_user_verification(decision)
 
@@ -192,6 +195,8 @@ class SystemTypeClassifier:
             return self._classify_gplis_family(parsed, bom, "DSM PRODUCER GT")
         if family == "DX":
             return self._classify_gplis_family(parsed, bom, "DSM APACHE (DX)")
+        if family == "ZG":
+            return self._classify_zg_wd_template(parsed, bom)
         if family == "TY":
             return self._classify_radiance(bom)
         if family in {"EY3", "ES1"}:
@@ -282,6 +287,31 @@ class SystemTypeClassifier:
             return self._bom_error(f"{base_output} BOM was incomplete", bom)
         output = base_output + (" WITH GPLIS" if found else "")
         return self._classified(output, "BOM-GPLIS-SHARED", *evidence)
+
+    def _classify_zg_wd_template(
+        self,
+        parsed: ParsedSystemNumber,
+        bom: BomSnapshot | None,
+    ) -> ClassificationDecision:
+        if parsed.chamber != "GP" and not _GP_SINGLE.fullmatch(parsed.chamber):
+            return ClassificationDecision(
+                DecisionStatus.UNCLASSIFIED,
+                evidence=(
+                    f"ZG chamber {parsed.chamber} is not a recognized gas-panel form",
+                ),
+            )
+        return ClassificationDecision(
+            DecisionStatus.UNCLASSIFIED,
+            rule_ids=("WD-ZG-USE-GT-GPLIS-TEMPLATE",),
+            evidence=(
+                "ZG gas-panel system type remains uncertain; only the WD template "
+                "is fixed to the Producer GT WITH GPLIS template",
+            ),
+            warnings=(
+                "Do not use the GT template recommendation as a ZG system-type classification",
+            ),
+            suggested_wd_template="SGP_TEMPLATE_AMAT_GT_GPLIS",
+        )
 
     def _direct_gplis(
         self, bom: BomSnapshot, parent_part_number: str
@@ -574,6 +604,7 @@ class SystemTypeClassifier:
             + (
                 "Do not use this classification downstream until a user confirms it",
             ),
+            suggested_wd_template=decision.suggested_wd_template,
         )
 
     @staticmethod
