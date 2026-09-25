@@ -38,3 +38,6 @@ When hosted outside ASA, bind it only to a trusted internal network or set
   processing does not invalidate the button event slot while work starts.
 - Moved progress polling to a persistent page-level timer and routed background
   notifications through the stable browser-client context.
+- Batch workflows now create a downloadable workbook immediately. Pending
+  verification rows remain blank until the user reviews and regenerates it.
+- Excel output failures remain visible on the page with a retry action.

@@ -53,6 +53,7 @@ class MatcherPage:
         self.classifications: dict[WorkflowMode, list[SystemClassification]] = {}
         self.feedback: dict[WorkflowMode, dict[int, VerificationFeedback]] = {}
         self.output_paths: dict[WorkflowMode, Path] = {}
+        self.output_errors: dict[WorkflowMode, str] = {}
         self.cancel_event = threading.Event()
         self.messages: SimpleQueue[str] = SimpleQueue()
         self._temp = tempfile.TemporaryDirectory(prefix="amat_matcher_")
@@ -252,6 +253,7 @@ class MatcherPage:
         self.classifications.clear()
         self.feedback.clear()
         self.output_paths.clear()
+        self.output_errors.clear()
         if self.status_label is not None:
             self.status_label.set_text("Signed out")
         await self.render_content.refresh()
@@ -589,6 +591,7 @@ class MatcherPage:
         self.layouts[mode] = layout
         self.classifications.pop(mode, None)
         self.output_paths.pop(mode, None)
+        self.output_errors.pop(mode, None)
         self.feedback[mode] = {}
         ui.notify(f"Loaded {len(layout.inputs)} system numbers", type="positive")
         await self.render_content.refresh()
@@ -630,6 +633,7 @@ class MatcherPage:
         self.layouts.pop(mode, None)
         self.classifications.pop(mode, None)
         self.output_paths.pop(mode, None)
+        self.output_errors.pop(mode, None)
         self.feedback.pop(mode, None)
         self.render_content.refresh()
 
@@ -640,6 +644,7 @@ class MatcherPage:
         self.cancel_event.clear()
         self.classifications.pop(mode, None)
         self.output_paths.pop(mode, None)
+        self.output_errors.pop(mode, None)
         await self.render_content.refresh()
         assert self.progress_timer is not None
         self.progress_timer.activate()
@@ -664,8 +669,7 @@ class MatcherPage:
                 if pending else "Classification complete",
                 type="warning" if pending else "positive",
             )
-            if not pending:
-                await self.generate_output(mode)
+            await self.generate_output(mode)
         except Exception as exc:
             self._notify(f"Processing failed: {exc}", type="negative", timeout=10000)
         finally:
@@ -691,6 +695,18 @@ class MatcherPage:
                         "Download Workbook", icon="download",
                         on_click=lambda _, path=output: ui.download(path, path.name),
                     ).classes("primary-btn").props("no-caps unelevated")
+            output_error = self.output_errors.get(mode)
+            if output_error:
+                with ui.row().classes(
+                    "w-full mt-4 items-center justify-between rounded-lg border border-red-700 bg-red-950/30 p-3"
+                ):
+                    with ui.column().classes("gap-1"):
+                        ui.label("Excel output could not be created").classes("text-sm text-red-200 font-semibold")
+                        ui.label(output_error).classes("text-xs text-red-300")
+                    ui.button(
+                        "Retry Output", icon="refresh",
+                        on_click=lambda: self.retry_output(mode),
+                    ).classes("secondary-btn").props("no-caps")
             with ui.row().classes("w-full gap-3 mt-3"):
                 self._metric("Total", str(len(classifications)))
                 self._metric("Classified", str(counts[DecisionStatus.CLASSIFIED]))
@@ -707,11 +723,15 @@ class MatcherPage:
                 with ui.row().classes(
                     "w-full mt-4 items-center justify-between rounded-lg border border-amber-700 bg-amber-950/30 p-3"
                 ):
-                    ui.label(f"{len(pending)} result(s) must be reviewed before download").classes(
-                        "text-sm text-amber-200"
-                    )
+                    with ui.column().classes("gap-1"):
+                        ui.label(f"{len(pending)} result(s) require verification").classes(
+                            "text-sm text-amber-200 font-semibold"
+                        )
+                        ui.label(
+                            "The downloadable workbook leaves these rows blank. Review them to regenerate a completed output."
+                        ).classes("text-xs text-amber-300")
                     ui.button(
-                        f"Review {len(pending)} Results", icon="fact_check",
+                        f"Review & Regenerate", icon="fact_check",
                         on_click=lambda: self.review_batch(mode),
                     ).props("no-caps unelevated color=warning")
 
@@ -809,6 +829,7 @@ class MatcherPage:
         source = self.input_paths[mode]
         suffix = "_system_types.xlsx" if mode == WorkflowMode.SYSTEM_TYPE else "_wd_templates.xlsx"
         output = self.workspace / f"{source.stem}{suffix}"
+        self.output_errors.pop(mode, None)
         try:
             plan = build_update_plan(
                 layout,
@@ -824,7 +845,22 @@ class MatcherPage:
                 timeout=7000,
             )
         except Exception as exc:
-            self._notify(f"Output generation failed: {exc}", type="negative", timeout=10000)
+            message = str(exc)
+            self.output_paths.pop(mode, None)
+            self.output_errors[mode] = message
+            self._notify(f"Output generation failed: {message}", type="negative", timeout=10000)
+
+    async def retry_output(self, mode: WorkflowMode) -> None:
+        if self.busy:
+            return
+        if self.status_label is not None:
+            self.status_label.set_text("Generating Excel output…")
+        await self.generate_output(mode)
+        if self.status_label is not None:
+            self.status_label.set_text(
+                "Workbook ready" if mode in self.output_paths else "Excel output failed"
+            )
+        await self.render_content.refresh()
 
     async def show_selected_evidence(
         self,

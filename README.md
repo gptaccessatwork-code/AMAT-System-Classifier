@@ -15,9 +15,10 @@ this repository.
 - **WD Template Excel** — write the approved WD template beside a `System Number`
   column, including supported headerless workbooks.
 
-Coverage-limited results are reviewed in the browser. A user can confirm the
-proposal, choose a corrected canonical type, or leave the row unresolved. Every
-output includes the `AMAT Match Evidence` worksheet.
+The app always creates a downloadable workbook after classification. Any
+coverage-limited, unresolved, or failed rows remain blank and are documented in
+the `AMAT Match Evidence` worksheet. A user can review coverage-limited proposals,
+confirm or correct them, and regenerate the workbook.
 
 ## Host requirements
 
