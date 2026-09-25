@@ -1,74 +1,96 @@
-# AMAT System Classifier
+# AMAT System Matcher
 
-Windows desktop application with two Excel workflows built on the versioned
-AMAT system-type rules and direct Agile WSDL BOM retrieval.
+Release-ready NiceGUI application for identifying AMAT system types and approved
+WD templates from individual system numbers or Excel workbooks. The application
+uses the versioned classifier rules and live Agile BOM data already maintained in
+this repository.
+
+## Included workflows
+
+- **Individual Lookup** — classify one system without uploading Excel. Results
+  include the system type, WD template, parsed system details, rule IDs, evidence,
+  and warnings.
+- **System Type Excel** — populate the existing `System Type` column in a quote
+  request workbook.
+- **WD Template Excel** — write the approved WD template beside a `System Number`
+  column, including supported headerless workbooks.
+
+Coverage-limited results are reviewed in the browser. A user can confirm the
+proposal, choose a corrected canonical type, or leave the row unresolved. Every
+output includes the `AMAT Match Evidence` worksheet.
+
+## Host requirements
+
+- Windows 10 or Windows 11
+- Python 3.11 or newer (64-bit recommended)
+- Microsoft Excel desktop application
+- Network access to the configured Agile WSDL
+- An individual Agile PLM user account
+
+Microsoft Excel is required on the host because output is written through hidden
+Excel automation. This preserves validation dropdowns, formulas, formatting, and
+other workbook features.
+
+## Install on another PC
+
+1. Extract the release ZIP to a normal local folder. Avoid running directly from
+   inside the ZIP.
+2. Double-click `setup.bat`. It creates an isolated `.venv` and installs the
+   pinned dependencies.
+3. Optionally copy `.env.example` to `.env` to change the port or another runtime
+   setting.
+4. Users enter their own Agile username and password when opening the app. The
+   credentials remain in the in-memory server session for that browser and are never written
+   to the host PC, logs, workbooks, or caches.
+5. Double-click `start_server.bat`.
+6. Open `http://localhost:8080`.
+
+Other PCs on the same approved network can use `http://HOST-PC-NAME:8080` if the
+Windows firewall and company network policy permit it. Agile sign-in protects the
+PLM session but is not a replacement for ASA access control; restrict standalone
+network access to the trusted internal network.
+
+## Configuration
+
+Settings are read from `.env`:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `AMAT_MATCHER_HOST` | `0.0.0.0` | Listen interface |
+| `AMAT_MATCHER_PORT` | `8080` | Web server port |
+| `AMAT_MATCHER_ROUTE` | `/` | Standalone route |
+| `AMAT_MATCHER_MAX_UPLOAD_MB` | `50` | Maximum workbook size |
+| `AMAT_MATCHER_WORKERS` | `10` | Concurrent Agile workers |
+| `AMAT_AGILE_WSDL_URL` | Current internal endpoint | Agile Table WSDL |
+
+## Integrate into ASA
+
+Copy the `system_type_identifier` package into the ASA Python environment and add
+NiceGUI plus the dependencies in `requirements.txt`. Register the page before ASA
+calls `ui.run`:
+
+```python
+from system_type_identifier.web_ui import register_pages
+
+register_pages('/amat-system-matcher')
+```
+
+ASA must call `ui.run` only once. Do not call `system_type_identifier.ui.run_app`
+from ASA; that function is solely the standalone launcher.
 
 ## Run from source
-
-Microsoft Excel must be installed because output workbooks are updated through
-hidden Excel automation to preserve dropdowns, formulas, formatting, and other
-workbook features.
 
 ```powershell
 py -3 -m pip install -r requirements.txt
 py -3 app.py
 ```
 
-Agile credentials load automatically from `script_credentials.json` in the
-parent `Scripts` directory using `AGILE_USER` and `AGILE_PASS`. Credential
-values are not displayed or written to source files, reports, logs, or caches.
+## Verification
 
-## System Type
+```powershell
+py -3 -m unittest discover -s tests -v
+py -3 -m compileall -q app.py system_type_identifier tests
+```
 
-Select a quote-request `.xlsx` workbook containing `System Number` and
-`System Type` headers on the same row. The headers may occur within the first
-25 rows; they are detected rather than assumed to be on a fixed row.
-
-The application classifies each populated system number, copies the source
-workbook to the chosen output path, and assigns only the corresponding System
-Type cell value. Microsoft Excel performs the update, preserving list
-validation such as the dropdowns in the quote-request workbook. Invalid,
-unclassified, failed, and unconfirmed results are written as blank values.
-
-## WD Template
-
-Select an `.xlsx` workbook containing a column headed `System Number`. The
-application writes `WD Template` in the adjacent column. A headerless column of
-valid system numbers is also supported; in that case templates are written
-beside the existing rows without adding a header.
-
-The adjacent column must be empty or already headed `WD Template`, `Template`,
-or `System Template`. The application refuses to overwrite an unrelated
-adjacent column. The approved 42-type mapping is implemented in
-`system_type_identifier.templates` and contains 31 unique WD templates.
-
-Product-family `ZG` gas panels have a WD-only exception. Normal builds and
-confirmed full-build NSOs always use `SGP_TEMPLATE_AMAT_GT_GPLIS`. Their system
-type remains blank and uncertain; non-full NSOs receive no template.
-
-## Processing
-
-Both modes use a pool of 10 Agile workers. Output row order matches the source
-workbook, concurrent requests for the same part share the synchronized BOM
-cache, and the source workbook is never modified.
-
-Six coverage-limited system types return `VERIFICATION_REQUIRED`. The
-application prompts for each affected row. Confirmed proposals are written. If
-a proposal is wrong, select a corrected canonical type and optionally enter a
-feedback note; the corrected type or its WD template is written for that run.
-Unresolved proposals remain blank, and cancelling verification aborts output
-creation.
-
-Every output workbook includes an `AMAT Match Evidence` worksheet. It records
-the proposed and written values, status, matched rule IDs, BOM evidence,
-warnings, ruleset/template versions, user verification, corrections, notes, and
-a `Requirements Action`. Return this workbook when refining the rules:
-`CONFIDENCE_EXAMPLE` supports the proposed low-confidence type,
-`RULE_CORRECTION` identifies a wrong proposal with its corrected type, and
-`RULE_REVIEW` identifies a rejected proposal that still needs investigation.
-`SYSTEM_TYPE_RESEARCH` marks a WD-only result such as `ZG`, where a template was
-selected but the system type intentionally remains unresolved.
-
-The deterministic rules and template map are documented in
-[REQUIREMENTS.md](REQUIREMENTS.md). The labeled-evaluation modules and reports
-remain in the codebase for regression testing and rule refinement.
+The detailed deterministic classification rules are documented in
+[REQUIREMENTS.md](REQUIREMENTS.md).

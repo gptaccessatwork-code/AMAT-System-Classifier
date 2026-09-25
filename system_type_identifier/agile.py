@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-import json
-from pathlib import Path
 import threading
 from typing import Any
 
@@ -20,7 +18,6 @@ DEFAULT_WSDL_URL = (
     "http://pagapps1.ichorsystems.com:7001/"
     "CoreService/services/Table?wsdl"
 )
-DEFAULT_CREDENTIALS_PATH = Path(__file__).resolve().parents[2] / "script_credentials.json"
 
 
 class AgileConnectionError(RuntimeError):
@@ -29,39 +26,6 @@ class AgileConnectionError(RuntimeError):
 
 class AgileBomError(RuntimeError):
     pass
-
-
-@dataclass(frozen=True)
-class AgileCredentials:
-    username: str
-    password: str
-
-
-def load_script_credentials(path: str | Path = DEFAULT_CREDENTIALS_PATH) -> AgileCredentials:
-    credentials_path = Path(path)
-    try:
-        payload = json.loads(credentials_path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise AgileConnectionError(
-            f"Credential file not found: {credentials_path}"
-        ) from exc
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AgileConnectionError(
-            f"Unable to read credential file {credentials_path}: {exc}"
-        ) from exc
-
-    username = str(payload.get("AGILE_USER") or "").strip()
-    password = str(payload.get("AGILE_PASS") or "")
-    missing = [
-        key
-        for key, value in (("AGILE_USER", username), ("AGILE_PASS", password))
-        if not value
-    ]
-    if missing:
-        raise AgileConnectionError(
-            f"Credential file is missing populated keys: {', '.join(missing)}"
-        )
-    return AgileCredentials(username, password)
 
 
 @dataclass(frozen=True)
@@ -111,25 +75,16 @@ class AgileBomClient:
         except Exception as exc:
             raise AgileConnectionError(f"Unable to initialize Agile WSDL client: {exc}") from exc
 
-    @classmethod
-    def from_script_credentials(
-        cls,
-        wsdl_url: str = DEFAULT_WSDL_URL,
-        credentials_path: str | Path = DEFAULT_CREDENTIALS_PATH,
-        timeout_seconds: int = 45,
-    ) -> "AgileBomClient":
-        credentials = load_script_credentials(credentials_path)
-        return cls(
-            credentials.username,
-            credentials.password,
-            wsdl_url=wsdl_url,
-            timeout_seconds=timeout_seconds,
-        )
-
     def clear_cache(self) -> None:
         with self._cache_lock:
             self._direct_cache.clear()
             self._direct_failures.clear()
+
+    def close(self) -> None:
+        """Release the authenticated HTTP session without persisting credentials."""
+
+        self.clear_cache()
+        self._session.close()
 
     def fetch_bom(
         self,

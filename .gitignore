@@ -1,0 +1,8 @@
+.env
+.venv/
+*.pyc
+__pycache__/
+dist/
+script_credentials.json
+*_system_types.xlsx
+*_wd_templates.xlsx
