@@ -313,6 +313,62 @@ class ClassifierTests(unittest.TestCase):
         siconi = bom(siconi_root, item(siconi_root, "0244-2", "KIT PROCESS GAS"))
         self.assertEqual(self.classify(siconi_root, siconi).predicted_system_type, "SICONI")
 
+    def test_pj_centinel_description_matching(self):
+        root = "601158-PJ-ZGP1"
+        for depth in (1, 2):
+            for complete in (True, False):
+                with self.subTest(depth=depth, complete=complete):
+                    snapshot = bom(root, item(root, "CENT-1", "KIT, Centinel gas panel",
+                                              depth=depth, category="Document"), complete=complete)
+                    decision = self.classify(root, snapshot)
+                    self.assertEqual(decision.status, DecisionStatus.CLASSIFIED)
+                    self.assertEqual(decision.predicted_system_type, "CENTINEL")
+                    self.assertIn("BOM-PJ-CENTINEL", decision.rule_ids)
+                    self.assertIn("CENT-1", decision.evidence[0])
+
+    def test_pj_centinel_conflicting_indicators(self):
+        root = "601158-PJ-ZGP1"
+        for other in ("KIT TXZ", "kit txz"):
+            with self.subTest(other=other):
+                decision = self.classify(root, bom(
+                    root, item(root, "CENT-1", "CENTINEL"), item(root, "OTHER", other)))
+                self.assertEqual(decision.status, DecisionStatus.RULE_CONFLICT)
+                self.assertEqual(decision.predicted_system_type, "")
+                self.assertEqual(len(decision.evidence), 2)
+
+    def test_pj_centinel_overrides_ald(self):
+        root = "601158-PJ-ZGP1"
+        for phrase in ("ALD TAN", "ALD2 TAN", "ALD TAN II"):
+            for complete in (True, False):
+                for same_item in (True, False):
+                    with self.subTest(phrase=phrase, complete=complete, same_item=same_item):
+                        rows = [item(root, "CENT-1", f"Centinel {phrase}")]
+                        if not same_item:
+                            rows = [item(root, "ALD-1", phrase),
+                                    item(root, "CENT-1", "KIT Centinel", depth=2)]
+                        decision = self.classify(root, bom(root, *rows, complete=complete))
+                        self.assertEqual(decision.status, DecisionStatus.CLASSIFIED)
+                        self.assertEqual(decision.predicted_system_type, "CENTINEL")
+                        self.assertEqual(decision.rule_ids, ("BOM-PJ-CENTINEL",))
+
+    def test_pj_txz_and_ald_remain_conflicting(self):
+        root = "601158-PJ-ZGP1"
+        decision = self.classify(root, bom(root, item(root, "OTHER", "TXZ ALD TAN")))
+        self.assertEqual(decision.status, DecisionStatus.RULE_CONFLICT)
+
+    def test_pj_centinel_scope_and_fallback(self):
+        root = "601158-PJ-ZGP1"
+        for description, depth in (("CENTINEL", 3), ("PRECENTINEL", 1)):
+            with self.subTest(description=description, depth=depth):
+                snapshot = bom(root, item(root, "CENT-1", description, depth=depth))
+                self.assertEqual(self.classify(root, snapshot).predicted_system_type, "SICONI")
+                incomplete = bom(root, *snapshot.items, complete=False)
+                self.assertEqual(self.classify(root, incomplete).status,
+                                 DecisionStatus.BOM_RETRIEVAL_ERROR)
+        other = "601158-DG-GPA"
+        self.assertEqual(self.classify(other, bom(other, item(other, "CENT-1", "CENTINEL")))
+                         .predicted_system_type, "DSM PRODUCER GT")
+
     def test_inoz_positions_samsung_and_explicit_ozonator(self):
         root = "511837-DG-INOZ"
         samsung = bom(

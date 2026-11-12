@@ -1,4 +1,4 @@
-# AMAT System Matcher — Release 2026.09.25
+# AMAT System Matcher — Release 2026.10.02.1
 
 ## New
 
@@ -41,3 +41,10 @@ When hosted outside ASA, bind it only to a trusted internal network or set
 - Batch workflows now create a downloadable workbook immediately. Pending
   verification rows remain blank until the user reviews and regenerates it.
 - Excel output failures remain visible on the page with a retry action.
+- Excel now opens a short, ordinary staging filename under local application data
+  instead of a long hidden filename in the browser-session temporary directory.
+- Excel errors identify whether failure occurred during launch, open, write, or
+  save and include staging-file diagnostics for host-PC troubleshooting.
+- If desktop Excel automation still cannot open a workbook, the app automatically
+  creates the download with an OpenPyXL compatibility writer and clearly labels
+  the result in the UI.

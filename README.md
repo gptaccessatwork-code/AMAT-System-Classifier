@@ -1,5 +1,7 @@
 # AMAT System Matcher
 
+Current application release: `2026.10.02.1`
+
 Release-ready NiceGUI application for identifying AMAT system types and approved
 WD templates from individual system numbers or Excel workbooks. The application
 uses the versioned classifier rules and live Agile BOM data already maintained in
@@ -63,6 +65,7 @@ Settings are read from `.env`:
 | `AMAT_MATCHER_MAX_UPLOAD_MB` | `50` | Maximum workbook size |
 | `AMAT_MATCHER_WORKERS` | `10` | Concurrent Agile workers |
 | `AMAT_AGILE_WSDL_URL` | Current internal endpoint | Agile Table WSDL |
+| `AMAT_EXCEL_STAGING_DIR` | `%LOCALAPPDATA%\AMATSystemMatcher\Excel` | Short local Excel automation folder |
 
 ## Integrate into ASA
 
@@ -91,6 +94,12 @@ py -3 app.py
 ```powershell
 py -3 -m unittest discover -s tests -v
 py -3 -m compileall -q app.py system_type_identifier tests
+```
+
+To verify Microsoft Excel automation on the host PC without connecting to Agile:
+
+```powershell
+.venv\Scripts\python.exe verify_excel_output.py
 ```
 
 The detailed deterministic classification rules are documented in

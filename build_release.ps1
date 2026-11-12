@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "2026.09.25"
+    [string]$Version = "2026.10.02.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +20,7 @@ New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
 $files = @(
     "app.py",
+    "verify_excel_output.py",
     "README.md",
     "RELEASE_NOTES.md",
     "REQUIREMENTS.md",

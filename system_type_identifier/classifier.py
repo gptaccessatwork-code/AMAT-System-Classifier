@@ -13,7 +13,7 @@ from .models import (
 )
 
 
-RULESET_VERSION = "2026.09.02.2"
+RULESET_VERSION = "2026.11.12.2"
 
 VERIFICATION_REQUIRED_TYPES = frozenset(
     {
@@ -439,17 +439,27 @@ class SystemTypeClassifier:
             for item, text in descriptions
             if any(term in text for term in ("ALD TAN", "ALD2 TAN", "ALD TAN II"))
         ]
-        if txz and ald:
+        centinel = [
+            item for item, text in descriptions
+            if re.search(r"\bCENTINEL\b", text)
+        ]
+        matches = [("TXZ", txz), ("ALD", ald), ("CENTINEL", centinel)]
+        if txz and (ald or centinel):
             return ClassificationDecision(
                 DecisionStatus.RULE_CONFLICT,
                 rule_ids=("BOM-PJ-CONFLICT",),
-                evidence=(
-                    f"TXZ match: {txz[0].part_number}: {txz[0].description}",
-                    f"ALD match: {ald[0].part_number}: {ald[0].description}",
+                evidence=tuple(
+                    f"{name} match: {rows[0].part_number}: {rows[0].description}"
+                    for name, rows in matches if rows
                 ),
             )
         if txz:
             return self._classified("TXZ", "BOM-PJ-TXZ", f"{txz[0].part_number}: {txz[0].description}")
+        if centinel:
+            return self._classified(
+                "CENTINEL", "BOM-PJ-CENTINEL",
+                f"{centinel[0].part_number}: {centinel[0].description}",
+            )
         if ald:
             return self._classified(
                 "ALD 2 TAN", "BOM-PJ-ALD-TAN", f"{ald[0].part_number}: {ald[0].description}"
@@ -457,7 +467,7 @@ class SystemTypeClassifier:
         if not bom.complete:
             return self._bom_error("PJ two-level BOM was incomplete", bom)
         return self._classified(
-            "SICONI", "BOM-PJ-FALLBACK-SICONI", "No TXZ or ALD TaN indicator at levels 1-2"
+            "SICONI", "BOM-PJ-FALLBACK-SICONI", "No TXZ, ALD TaN, or CENTINEL indicator at levels 1-2"
         )
 
     def _classify_inoz(self, bom: BomSnapshot | None) -> ClassificationDecision:

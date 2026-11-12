@@ -11,7 +11,7 @@ from system_type_identifier.templates import (
 
 class TemplateMatcherTests(unittest.TestCase):
     def test_mapping_covers_every_canonical_type(self):
-        self.assertEqual(len(SYSTEM_TYPE_TO_WD_TEMPLATE), 42)
+        self.assertEqual(len(SYSTEM_TYPE_TO_WD_TEMPLATE), 43)
         self.assertEqual(len(set(SYSTEM_TYPE_TO_WD_TEMPLATE.values())), 31)
         self.assertTrue(all(SYSTEM_TYPE_TO_WD_TEMPLATE.values()))
 
@@ -21,6 +21,10 @@ class TemplateMatcherTests(unittest.TestCase):
             "ETCH SYM3 AP (XA)",
         )
         self.assertEqual(resolve_wd_template(decision), "SGP_TEMPLATE_AMAT_SYM3")
+
+    def test_centinel_resolves_shared_template(self):
+        decision = ClassificationDecision(DecisionStatus.CLASSIFIED, "CENTINEL")
+        self.assertEqual(resolve_wd_template(decision), "SGP_TEMPLATE_AMAT_SICONI_OATES")
 
     def test_verification_required_blocks_unverified_proposal(self):
         decision = ClassificationDecision(

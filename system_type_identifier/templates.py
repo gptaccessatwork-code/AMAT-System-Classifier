@@ -6,7 +6,7 @@ from typing import Mapping
 from .models import ClassificationDecision, DecisionStatus
 
 
-TEMPLATE_MAP_VERSION = "2026.09.02.2"
+TEMPLATE_MAP_VERSION = "2026.11.12.1"
 
 SYSTEM_TYPE_TO_WD_TEMPLATE: Mapping[str, str] = MappingProxyType(
     {
@@ -33,6 +33,7 @@ SYSTEM_TYPE_TO_WD_TEMPLATE: Mapping[str, str] = MappingProxyType(
         "FEP RADIANCE 1 CHAMBER": "SGP_TEMPLATE_RADIANCE",
         "FEP RADIANCE DPN CHAMBER": "SGP_TEMPLATE_DPN",
         "ALD 2 TAN": "SGP_TEMPLATE_AMAT_SICONI_OATES",
+        "CENTINEL": "SGP_TEMPLATE_AMAT_SICONI_OATES",
         "EPI SINGLE CLUSTER": "SGP_TEMPLATE_AMAT_EPI",
         "EPI JOPLIN/HENDRIX": "SGP_TEMPLATE_AMAT_JOPLIN",
         "EPI JOPLIN/HENDRIX WITH LDM": "SGP_TEMPLATE_AMAT_JOPLIN_LDS",

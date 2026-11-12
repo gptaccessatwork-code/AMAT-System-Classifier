@@ -1,6 +1,6 @@
 # AMAT System Type Identifier Requirements
 
-Current implemented ruleset: `2026.09.02.2`
+Current implemented ruleset: `2026.11.12.2`
 
 This document distinguishes implemented requirements from observations and
 open requirements. The versioned classifier and its regression tests are the
@@ -308,6 +308,7 @@ ETCH NAPA (XX)
 FEP RADIANCE 1 CHAMBER
 FEP RADIANCE DPN CHAMBER
 ALD 2 TAN
+CENTINEL
 EPI SINGLE CLUSTER
 EPI JOPLIN/HENDRIX
 EPI JOPLIN/HENDRIX WITH LDM
@@ -329,7 +330,7 @@ ASSY, OZONATOR WITH CHAMBER A & B, PRODUCER SE
 ASSY, OZONATOR WITH CHAMBER A & B & C, PRODUCER SE
 ```
 
-There are currently 42 canonical system names. The following rule sections
+There are currently 43 canonical system names. The following rule sections
 define how supported inputs map to them.
 `NSO` and `NEEDS REVIEW` are workflow sentinels, not canonical system names.
 `NEEDS REVIEW` means the input is structurally valid but uses a system form
@@ -883,6 +884,7 @@ A structurally valid classifiable system number whose product family is exactly
 SICONI
 TXZ
 ALD 2 TAN
+CENTINEL
 ```
 
 The shared system-number structure is:
@@ -892,7 +894,7 @@ The shared system-number structure is:
 ```
 
 Product family `PJ` identifies only this candidate set; it does not distinguish
-the three outputs. Resolve the type by searching Agile BOM item descriptions at
+the four outputs. Resolve the type by searching Agile BOM item descriptions at
 both system level 1 and system level 2:
 
 1. Retrieve every level-1 item for the `PJ` system.
@@ -907,7 +909,8 @@ Classification indicators are:
 | --- | --- |
 | Contains `TXZ` | `TXZ` |
 | Contains `ALD TAN`, `ALD2 TAN`, or `ALD TAN II` | `ALD 2 TAN` |
-| Contains none of the TXZ or ALD indicators | `SICONI` |
+| Contains the whole word `CENTINEL`, case-insensitively | `CENTINEL` |
+| Contains none of the TXZ, ALD, or CENTINEL indicators | `SICONI` |
 
 The ALD indicators are case-insensitive substring phrases. `TaN` is a gas name
 and may appear with that capitalization, so forms such as `ALD TaN`, `ALD2
@@ -917,14 +920,19 @@ as evidence.
 
 `SICONI` is an evidence-by-absence fallback. It may be selected only after a
 complete, successful inspection of both required BOM levels establishes that
-none of the TXZ or ALD indicators occur. If any required BOM retrieval is
+none of the TXZ, ALD, or CENTINEL indicators occur. If any required BOM retrieval is
 incomplete or fails and no positive subtype has already been established, leave
 the output blank instead of defaulting to `SICONI`.
 
-TXZ and ALD indicators are guaranteed to be mutually exclusive in a valid `PJ`
-BOM. As a defensive data-integrity check, if both ever appear despite that
-contract, leave the output blank and retain both matches for diagnosis rather
-than silently selecting an incorrect type.
+CENTINEL takes precedence over ALD indicators: if both occur in the same or
+different level-1/level-2 items, classify as `CENTINEL`. TXZ combined with ALD
+or CENTINEL remains a rule conflict; leave the output blank and retain the
+matches for diagnosis.
+
+CENTINEL matching includes Document-category rows and stops at level 2. A positive
+CENTINEL match may classify an incomplete BOM, consistent with the existing positive
+TXZ/ALD rules. Rule ID: `BOM-PJ-CENTINEL`. Existing chamber precedence and NSO
+full-build gates still apply. CENTINEL maps to `SGP_TEMPLATE_AMAT_SICONI_OATES`.
 
 #### PJ system-number indications
 
@@ -1140,7 +1148,7 @@ inspected, leave the output blank rather than assuming the non-LDM variant.
 
 ## Template Matching
 
-Template map version: `2026.09.02.2`.
+Template map version: `2026.11.12.1`.
 
 The template matcher reuses the parser and classification engine, then selects
 the approved WD template mapped to the predicted canonical system type. The
@@ -1172,6 +1180,7 @@ for the following implemented mapping:
 | `FEP RADIANCE 1 CHAMBER` | `SGP_TEMPLATE_RADIANCE` |
 | `FEP RADIANCE DPN CHAMBER` | `SGP_TEMPLATE_DPN` |
 | `ALD 2 TAN` | `SGP_TEMPLATE_AMAT_SICONI_OATES` |
+| `CENTINEL` | `SGP_TEMPLATE_AMAT_SICONI_OATES` |
 | `EPI SINGLE CLUSTER` | `SGP_TEMPLATE_AMAT_EPI` |
 | `EPI JOPLIN/HENDRIX` | `SGP_TEMPLATE_AMAT_JOPLIN` |
 | `EPI JOPLIN/HENDRIX WITH LDM` | `SGP_TEMPLATE_AMAT_JOPLIN_LDS` |
@@ -1198,7 +1207,7 @@ has prompted the user and passes an explicit confirmation. Invalid,
 unclassified, NSO manual-review, conflict, retrieval-error, and needs-review
 decisions must not produce a WD template.
 
-Shared template values are valid. The map contains 42 canonical system types
+Shared template values are valid. The map contains 43 canonical system types
 and 31 unique WD templates; template names are identifiers and must be matched
 exactly, including capitalization and underscores.
 
@@ -1260,7 +1269,7 @@ unrelated header, or has populated data without an approved header, reject the
 workbook rather than overwrite user data.
 
 Classify every system using the same rules as Find System Type, then resolve the
-approved canonical type through template map `2026.09.02.2`. Outcomes that
+approved canonical type through template map `2026.11.12.1`. Outcomes that
 cannot produce an approved system type must leave the adjacent template value
 blank.
 
@@ -1285,7 +1294,7 @@ blank.
 For each `VERIFICATION_REQUIRED` result, display a blocking Yes/No/Cancel prompt
 containing the workbook row, system number, and proposed canonical type. Yes
 records approval for that run and writes the type or template. No opens a
-correction dialog containing the 42 canonical types and an optional feedback
+correction dialog containing the 43 canonical types and an optional feedback
 note. A selected correction writes the corrected type or mapped WD template;
 `Leave Unresolved` records rejection and leaves the output blank. Cancel aborts
 the entire output operation. Never infer approval from a prior workbook value.
@@ -1466,7 +1475,7 @@ The implemented Windows Python desktop application includes:
   must not have to export thousands of BOMs.
 - A reusable classification engine independent of the UI.
 - Versioned, tested Python rules for direct and hierarchical classification.
-- A versioned 42-type to 31-template mapping independent of the UI.
+- A versioned 43-type to 31-template mapping independent of the UI.
 - A synchronized in-memory direct-BOM cache for the current application run.
 - Retained labeled-evaluation Excel and JSON report export for rule refinement.
 - A fixed pool of 10 evaluation workers, ordered output, duplicate-request

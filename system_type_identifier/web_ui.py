@@ -17,12 +17,13 @@ from .parser import parse_system_number
 from .service import SystemMatcherService, display_result, result_row
 from .templates import SYSTEM_TYPE_TO_WD_TEMPLATE, TEMPLATE_MAP_VERSION
 from .web_styles import APP_CSS
+from .version import APP_VERSION
 from .workflows import (
     VerificationFeedback,
     VerificationOutcome,
     WorkflowMode,
     build_update_plan,
-    write_value_only_workbook_copy,
+    write_workbook_copy_with_result,
 )
 
 
@@ -54,6 +55,7 @@ class MatcherPage:
         self.feedback: dict[WorkflowMode, dict[int, VerificationFeedback]] = {}
         self.output_paths: dict[WorkflowMode, Path] = {}
         self.output_errors: dict[WorkflowMode, str] = {}
+        self.output_warnings: dict[WorkflowMode, str] = {}
         self.cancel_event = threading.Event()
         self.messages: SimpleQueue[str] = SimpleQueue()
         self._temp = tempfile.TemporaryDirectory(prefix="amat_matcher_")
@@ -83,7 +85,10 @@ class MatcherPage:
             with ui.row().classes("statusbar w-full items-center no-wrap"):
                 self.status_label = ui.label("Sign in to begin")
                 ui.space()
-                ui.label(f"Ruleset {RULESET_VERSION}  ·  Template map {TEMPLATE_MAP_VERSION}")
+                ui.label(
+                    f"App {APP_VERSION}  ·  Ruleset {RULESET_VERSION}  ·  "
+                    f"Template map {TEMPLATE_MAP_VERSION}"
+                )
         self.progress_timer = ui.timer(0.2, self._drain_progress, active=False)
 
     def close(self) -> None:
@@ -254,6 +259,7 @@ class MatcherPage:
         self.feedback.clear()
         self.output_paths.clear()
         self.output_errors.clear()
+        self.output_warnings.clear()
         if self.status_label is not None:
             self.status_label.set_text("Signed out")
         await self.render_content.refresh()
@@ -592,6 +598,7 @@ class MatcherPage:
         self.classifications.pop(mode, None)
         self.output_paths.pop(mode, None)
         self.output_errors.pop(mode, None)
+        self.output_warnings.pop(mode, None)
         self.feedback[mode] = {}
         ui.notify(f"Loaded {len(layout.inputs)} system numbers", type="positive")
         await self.render_content.refresh()
@@ -634,6 +641,7 @@ class MatcherPage:
         self.classifications.pop(mode, None)
         self.output_paths.pop(mode, None)
         self.output_errors.pop(mode, None)
+        self.output_warnings.pop(mode, None)
         self.feedback.pop(mode, None)
         self.render_content.refresh()
 
@@ -645,6 +653,7 @@ class MatcherPage:
         self.classifications.pop(mode, None)
         self.output_paths.pop(mode, None)
         self.output_errors.pop(mode, None)
+        self.output_warnings.pop(mode, None)
         await self.render_content.refresh()
         assert self.progress_timer is not None
         self.progress_timer.activate()
@@ -707,6 +716,20 @@ class MatcherPage:
                         "Retry Output", icon="refresh",
                         on_click=lambda: self.retry_output(mode),
                     ).classes("secondary-btn").props("no-caps")
+            output_warning = self.output_warnings.get(mode)
+            if output_warning:
+                with ui.column().classes(
+                    "w-full mt-4 gap-1 rounded-lg border border-amber-700 bg-amber-950/30 p-3"
+                ):
+                    ui.label("Workbook generated in compatibility mode").classes(
+                        "text-sm text-amber-200 font-semibold"
+                    )
+                    ui.label(
+                        "Microsoft Excel automation could not open the source, so the app used OpenPyXL. "
+                        "Values, formulas, ordinary formatting, and data validation are retained; review workbooks with advanced Excel-only features."
+                    ).classes("text-xs text-amber-300")
+                    with ui.expansion("Excel automation details", icon="info").classes("w-full"):
+                        ui.label(output_warning).classes("text-xs text-amber-300")
             with ui.row().classes("w-full gap-3 mt-3"):
                 self._metric("Total", str(len(classifications)))
                 self._metric("Classified", str(counts[DecisionStatus.CLASSIFIED]))
@@ -830,6 +853,7 @@ class MatcherPage:
         suffix = "_system_types.xlsx" if mode == WorkflowMode.SYSTEM_TYPE else "_wd_templates.xlsx"
         output = self.workspace / f"{source.stem}{suffix}"
         self.output_errors.pop(mode, None)
+        self.output_warnings.pop(mode, None)
         try:
             plan = build_update_plan(
                 layout,
@@ -837,11 +861,14 @@ class MatcherPage:
                 mode,
                 feedback_by_row=self.feedback.get(mode, {}),
             )
-            await run.io_bound(write_value_only_workbook_copy, plan, output)
-            self.output_paths[mode] = output
+            result = await run.io_bound(write_workbook_copy_with_result, plan, output)
+            self.output_paths[mode] = result.path
+            if result.warning:
+                self.output_warnings[mode] = result.warning
             self._notify(
-                f"Workbook ready: {plan.written_count} written, {plan.blank_count} left blank",
-                type="positive" if not plan.blank_count else "warning",
+                f"Workbook ready using {result.writer}: "
+                f"{plan.written_count} written, {plan.blank_count} left blank",
+                type="warning" if result.warning or plan.blank_count else "positive",
                 timeout=7000,
             )
         except Exception as exc:

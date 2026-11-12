@@ -7,11 +7,14 @@ import os
 from pathlib import Path
 import re
 import shutil
+import tempfile
 import uuid
 import warnings
 from typing import Mapping
 
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from .classifier import RULESET_VERSION
 from .models import (
@@ -95,6 +98,13 @@ class WorkbookUpdatePlan:
     evidence: tuple[MatchEvidence, ...]
     written_count: int
     blank_count: int
+
+
+@dataclass(frozen=True)
+class WorkbookWriteResult:
+    path: Path
+    writer: str
+    warning: str = ""
 
 
 def load_quote_request_layout(path: str | Path) -> WorkbookLayout:
@@ -276,6 +286,13 @@ def write_value_only_workbook_copy(
     plan: WorkbookUpdatePlan,
     output_path: str | Path,
 ) -> Path:
+    return write_workbook_copy_with_result(plan, output_path).path
+
+
+def write_workbook_copy_with_result(
+    plan: WorkbookUpdatePlan,
+    output_path: str | Path,
+) -> WorkbookWriteResult:
     source = plan.layout.source_path.resolve()
     output = Path(output_path).expanduser().resolve()
     if output.suffix.lower() != ".xlsx":
@@ -285,17 +302,65 @@ def write_value_only_workbook_copy(
     if not output.parent.exists():
         raise ValueError(f"Output folder does not exist: {output.parent}")
 
-    temp = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.tmp.xlsx")
-    shutil.copy2(source, temp)
+    staging_root = _excel_staging_directory()
+    staging = staging_root / f"AMAT_{uuid.uuid4().hex}.xlsx"
+    compatibility_staging: Path | None = None
+    completed_staging = staging
+    delivery = output.parent / f"AMAT_delivery_{uuid.uuid4().hex}.xlsx"
+    writer = "Microsoft Excel"
+    warning = ""
     try:
-        _write_cells_with_excel(plan, temp)
-        os.replace(temp, output)
-    finally:
+        shutil.copy2(source, staging)
+        if not staging.is_file() or staging.stat().st_size == 0:
+            raise RuntimeError("Excel staging copy was not created correctly")
         try:
-            temp.unlink(missing_ok=True)
-        except OSError:
-            LOGGER.warning("Unable to remove temporary workbook %s", temp.name)
-    return output
+            _write_cells_with_excel(plan, staging)
+        except RuntimeError as excel_error:
+            LOGGER.warning(
+                "Microsoft Excel writer failed; using compatibility writer: %s",
+                excel_error,
+            )
+            compatibility_staging = (
+                staging_root / f"AMAT_compat_{uuid.uuid4().hex}.xlsx"
+            )
+            shutil.copy2(source, compatibility_staging)
+            _write_cells_with_openpyxl(plan, compatibility_staging)
+            completed_staging = compatibility_staging
+            writer = "OpenPyXL compatibility mode"
+            warning = str(excel_error)
+        shutil.copy2(completed_staging, delivery)
+        os.replace(delivery, output)
+    finally:
+        for temporary_path in (staging, compatibility_staging, delivery):
+            if temporary_path is None:
+                continue
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                LOGGER.warning(
+                    "Unable to remove temporary workbook %s",
+                    temporary_path.name,
+                )
+    return WorkbookWriteResult(output, writer, warning)
+
+
+def _excel_staging_directory() -> Path:
+    """Return a short, non-synced folder that desktop Excel can access reliably."""
+
+    configured = os.getenv("AMAT_EXCEL_STAGING_DIR", "").strip()
+    if configured:
+        root = Path(configured).expanduser()
+    else:
+        local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+        base = Path(local_app_data) if local_app_data else Path(tempfile.gettempdir())
+        root = base / "AMATSystemMatcher" / "Excel"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Unable to create the Excel staging folder {root}: {exc}"
+        ) from exc
+    return root.resolve()
 
 
 def _write_cells_with_excel(plan: WorkbookUpdatePlan, workbook_path: Path) -> None:
@@ -310,18 +375,27 @@ def _write_cells_with_excel(plan: WorkbookUpdatePlan, workbook_path: Path) -> No
     pythoncom.CoInitialize()
     excel = None
     workbook = None
+    stage = "starting Excel"
+    resolved_path = workbook_path.resolve()
     try:
+        if not resolved_path.is_file():
+            raise RuntimeError(f"Staging workbook does not exist: {resolved_path}")
+        with resolved_path.open("r+b"):
+            pass
+        stage = "launching Excel"
         excel = win32com.client.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
         excel.EnableEvents = False
         excel.AskToUpdateLinks = False
+        stage = "opening the staging workbook"
         workbook = excel.Workbooks.Open(
-            str(workbook_path),
+            Filename=str(resolved_path),
             UpdateLinks=0,
             ReadOnly=False,
             IgnoreReadOnlyRecommended=True,
         )
+        stage = "writing workbook values"
         sheet = workbook.Worksheets(plan.layout.sheet_name)
         if plan.layout.header_row is not None and plan.layout.output_header is not None:
             sheet.Cells(plan.layout.header_row, plan.layout.output_column).Value2 = (
@@ -331,9 +405,17 @@ def _write_cells_with_excel(plan: WorkbookUpdatePlan, workbook_path: Path) -> No
             sheet.Cells(update.row, update.column).Value2 = update.value or None
         _write_evidence_sheet(workbook, plan.evidence)
         sheet.Activate()
+        stage = "saving the workbook"
         workbook.Save()
     except Exception as exc:
-        raise RuntimeError(f"Excel could not write the output workbook: {exc}") from exc
+        details = (
+            f"file={resolved_path.name}, exists={resolved_path.is_file()}, "
+            f"path_length={len(str(resolved_path))}"
+        )
+        raise RuntimeError(
+            f"Excel failed while {stage} ({details}). Close any stuck Excel "
+            f"processes and retry. Original error: {exc}"
+        ) from exc
     finally:
         if workbook is not None:
             try:
@@ -346,6 +428,42 @@ def _write_cells_with_excel(plan: WorkbookUpdatePlan, workbook_path: Path) -> No
             except Exception:
                 LOGGER.exception("Unable to close the temporary Excel process")
         pythoncom.CoUninitialize()
+
+
+def _write_cells_with_openpyxl(plan: WorkbookUpdatePlan, workbook_path: Path) -> None:
+    """Compatibility writer used only when desktop Excel automation fails."""
+
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*extension is not supported and will be removed.*",
+                category=UserWarning,
+                module="openpyxl.worksheet._reader",
+            )
+            workbook = load_workbook(workbook_path, data_only=False)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Compatibility writer could not open {workbook_path.name}: {exc}"
+        ) from exc
+
+    try:
+        sheet = workbook[plan.layout.sheet_name]
+        if plan.layout.header_row is not None and plan.layout.output_header is not None:
+            sheet.cell(plan.layout.header_row, plan.layout.output_column).value = (
+                plan.layout.output_header
+            )
+        for update in plan.updates:
+            sheet.cell(update.row, update.column).value = update.value or None
+        _write_evidence_sheet_openpyxl(workbook, plan.evidence)
+        workbook.active = workbook.sheetnames.index(plan.layout.sheet_name)
+        workbook.save(workbook_path)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Compatibility writer could not save {workbook_path.name}: {exc}"
+        ) from exc
+    finally:
+        workbook.close()
 
 
 def _approved_system_type(decision, feedback: VerificationFeedback | None) -> str:
@@ -372,6 +490,29 @@ def _approved_system_type(decision, feedback: VerificationFeedback | None) -> st
 def _write_evidence_sheet(workbook, evidence: tuple[MatchEvidence, ...]) -> None:
     sheet = _get_evidence_sheet(workbook)
     sheet.Cells.Clear()
+    matrix = _evidence_matrix(evidence)
+    headers = matrix[0]
+    target = sheet.Range(
+        sheet.Cells(1, 1),
+        sheet.Cells(len(matrix), len(headers)),
+    )
+    target.Value2 = matrix
+    header = sheet.Range(sheet.Cells(1, 1), sheet.Cells(1, len(headers)))
+    header.Font.Bold = True
+    header.Interior.Color = 0x784E1F
+    target.AutoFilter(Field=1)
+    target.Columns.AutoFit()
+    for column in range(1, len(headers) + 1):
+        column_range = sheet.Columns(column)
+        if column_range.ColumnWidth > 60:
+            column_range.ColumnWidth = 60
+    for column in (9, 10, 11, 14):
+        sheet.Columns(column).WrapText = True
+    if sheet.Index < workbook.Worksheets.Count:
+        sheet.Move(None, workbook.Worksheets(workbook.Worksheets.Count))
+
+
+def _evidence_matrix(evidence: tuple[MatchEvidence, ...]) -> tuple[tuple, ...]:
     headers = (
         "Source Row",
         "System Number",
@@ -415,25 +556,50 @@ def _write_evidence_sheet(workbook, evidence: tuple[MatchEvidence, ...]) -> None
         )
         for row in evidence
     )
-    matrix = (headers,) + rows
-    target = sheet.Range(
-        sheet.Cells(1, 1),
-        sheet.Cells(len(matrix), len(headers)),
-    )
-    target.Value2 = matrix
-    header = sheet.Range(sheet.Cells(1, 1), sheet.Cells(1, len(headers)))
-    header.Font.Bold = True
-    header.Interior.Color = 0x784E1F
-    target.AutoFilter(Field=1)
-    target.Columns.AutoFit()
-    for column in range(1, len(headers) + 1):
-        column_range = sheet.Columns(column)
-        if column_range.ColumnWidth > 60:
-            column_range.ColumnWidth = 60
+    return (headers,) + rows
+
+
+def _write_evidence_sheet_openpyxl(workbook, evidence: tuple[MatchEvidence, ...]) -> None:
+    if EVIDENCE_SHEET_NAME in workbook.sheetnames:
+        existing = workbook[EVIDENCE_SHEET_NAME]
+        if existing.cell(1, 1).value in {None, "Source Row"}:
+            sheet = existing
+            if sheet.max_row:
+                sheet.delete_rows(1, sheet.max_row)
+        else:
+            sheet = workbook.create_sheet(_unique_openpyxl_sheet_name(workbook))
+    else:
+        sheet = workbook.create_sheet(EVIDENCE_SHEET_NAME)
+
+    matrix = _evidence_matrix(evidence)
+    for row in matrix:
+        sheet.append(row)
+    header_fill = PatternFill("solid", fgColor="153B30")
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+    sheet.auto_filter.ref = sheet.dimensions
+    sheet.freeze_panes = "A2"
+    for column in range(1, len(matrix[0]) + 1):
+        values = (
+            str(sheet.cell(row, column).value or "")
+            for row in range(1, sheet.max_row + 1)
+        )
+        width = min(max((len(value) for value in values), default=10) + 2, 60)
+        sheet.column_dimensions[get_column_letter(column)].width = max(width, 12)
     for column in (9, 10, 11, 14):
-        sheet.Columns(column).WrapText = True
-    if sheet.Index < workbook.Worksheets.Count:
-        sheet.Move(None, workbook.Worksheets(workbook.Worksheets.Count))
+        for row in range(2, sheet.max_row + 1):
+            sheet.cell(row, column).alignment = Alignment(wrap_text=True, vertical="top")
+
+
+def _unique_openpyxl_sheet_name(workbook) -> str:
+    existing = {name.casefold() for name in workbook.sheetnames}
+    for sequence in range(2, 100):
+        suffix = f" {sequence}"
+        candidate = f"{EVIDENCE_SHEET_NAME[:31 - len(suffix)]}{suffix}"
+        if candidate.casefold() not in existing:
+            return candidate
+    raise RuntimeError("Unable to allocate an evidence worksheet name")
 
 
 def _get_evidence_sheet(workbook):

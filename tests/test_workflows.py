@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from system_type_identifier.models import (
     ClassificationDecision,
@@ -18,6 +18,7 @@ from system_type_identifier.workflows import (
     load_quote_request_layout,
     load_template_input_layout,
     write_value_only_workbook_copy,
+    write_workbook_copy_with_result,
 )
 
 
@@ -330,16 +331,120 @@ class WorkbookWorkflowTests(unittest.TestCase):
             WorkflowMode.SYSTEM_TYPE,
         )
 
-        with patch("system_type_identifier.workflows._write_cells_with_excel"):
+        with (
+            patch(
+                "system_type_identifier.workflows._excel_staging_directory",
+                return_value=output.parent,
+            ),
+            patch("system_type_identifier.workflows._write_cells_with_excel") as writer,
+        ):
             result = write_value_only_workbook_copy(plan, output)
         self.assertEqual(result, output.resolve())
         self.assertTrue(output.is_file())
-        self.assertEqual(
-            list(output.parent.glob(f".{output.stem}.*.tmp.xlsx")),
-            [],
-        )
+        staging_path = writer.call_args.args[1]
+        self.assertTrue(staging_path.name.startswith("AMAT_"))
+        self.assertFalse(staging_path.name.startswith("."))
+        self.assertNotIn(output.stem, staging_path.name)
+        self.assertFalse(staging_path.exists())
+        self.assertEqual(list(output.parent.glob("AMAT_delivery_*.xlsx")), [])
         with self.assertRaisesRegex(ValueError, "different from the source"):
             write_value_only_workbook_copy(plan, source)
+
+    def test_writer_falls_back_when_excel_cannot_open_staging_copy(self):
+        source = self.scratch_path()
+        output = self.scratch_path()
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet["A1"] = "System Number"
+        sheet["B1"] = "System Type"
+        sheet["A2"] = "707844-XA3-GPA"
+        workbook.save(source)
+        layout = load_quote_request_layout(source)
+        plan = build_update_plan(
+            layout,
+            [
+                SystemClassification(
+                    2,
+                    "707844-XA3-GPA",
+                    "NORMAL",
+                    ClassificationDecision(
+                        DecisionStatus.CLASSIFIED,
+                        "ETCH SYM3 AP (XA)",
+                    ),
+                )
+            ],
+            WorkflowMode.SYSTEM_TYPE,
+        )
+
+        with (
+            patch(
+                "system_type_identifier.workflows._excel_staging_directory",
+                return_value=output.parent,
+            ),
+            patch(
+                "system_type_identifier.workflows._write_cells_with_excel",
+                side_effect=RuntimeError("Excel COM open failed"),
+            ),
+        ):
+            result = write_workbook_copy_with_result(plan, output)
+
+        self.assertEqual(result.path, output.resolve())
+        self.assertEqual(result.writer, "OpenPyXL compatibility mode")
+        self.assertIn("Excel COM open failed", result.warning)
+        self.assertTrue(output.is_file())
+        written = load_workbook(output, read_only=True, data_only=False)
+        try:
+            self.assertEqual(written.active["B2"].value, "ETCH SYM3 AP (XA)")
+            self.assertIn("AMAT Match Evidence", written.sheetnames)
+        finally:
+            written.close()
+
+    def test_wd_template_writer_uses_fallback_and_produces_download(self):
+        source = self.scratch_path()
+        output = self.scratch_path()
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet["A1"] = "System Number"
+        sheet["A2"] = "707844-XA3-GPA"
+        workbook.save(source)
+        layout = load_template_input_layout(source)
+        plan = build_update_plan(
+            layout,
+            [
+                SystemClassification(
+                    2,
+                    "707844-XA3-GPA",
+                    "NORMAL",
+                    ClassificationDecision(
+                        DecisionStatus.CLASSIFIED,
+                        "ETCH SYM3 AP (XA)",
+                    ),
+                )
+            ],
+            WorkflowMode.WD_TEMPLATE,
+        )
+
+        with (
+            patch(
+                "system_type_identifier.workflows._excel_staging_directory",
+                return_value=output.parent,
+            ),
+            patch(
+                "system_type_identifier.workflows._write_cells_with_excel",
+                side_effect=RuntimeError("Excel COM open failed"),
+            ),
+        ):
+            result = write_workbook_copy_with_result(plan, output)
+
+        self.assertEqual(result.writer, "OpenPyXL compatibility mode")
+        self.assertTrue(output.is_file())
+        written = load_workbook(output, read_only=True, data_only=False)
+        try:
+            self.assertEqual(written.active["B1"].value, "WD Template")
+            self.assertEqual(written.active["B2"].value, "SGP_TEMPLATE_AMAT_SYM3")
+            self.assertIn("AMAT Match Evidence", written.sheetnames)
+        finally:
+            written.close()
 
 
 if __name__ == "__main__":
